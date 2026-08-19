@@ -812,7 +812,7 @@ window.__ModuleLoader__.load({
 			if (typeof PerformanceObserver !== "function") return; try { const observer = new PerformanceObserver((list) => { rt.metrics.longTasks += list.getEntries().filter((entry) => entry.duration >= 50).length; }); observer.observe({ type: "longtask", buffered: true }); rt.cleanups.push(() => observer.disconnect()); } catch {}
 		}
 		function warnLegacyCapabilities(rt) { if (rt.state.capabilityNotified) return; const colorMix = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("color", "color-mix(in srgb, red 50%, blue)"); if (colorMix && window.visualViewport) return; rt.state.capabilityNotified = true; console.info("dsh-mobile: 浏览器能力有限，已使用兼容布局", { colorMix, visualViewport: Boolean(window.visualViewport) }); }
-		/* ==================== 焦点抑制 / 杂项 ==================== */		function mountFocusSuppressors(rt) {
+		/* ==================== 焦点抑制 / 键盘收起 / 杂项 ==================== */		function mountFocusSuppressors(rt) {
 			document.addEventListener("focusin", (event) => {
 				if (!isMobileActive() || Date.now() >= rt.state.suppressInputFocusUntil) return;
 				const t = event.target;
@@ -825,6 +825,33 @@ window.__ModuleLoader__.load({
 				const btn = t.closest("button[aria-label]");
 				if (btn !== null && STOP_LABELS.includes(btn.getAttribute("aria-label"))) rt.state.suppressInputFocusUntil = Date.now() + 500;
 			}, { capture: true, signal: rt.abort.signal });
+			// 输入法收起（用户要求：失去焦点就收，不要展开）：
+			// ① 点输入区之外的任何地方 → 输入框 blur → iOS 收键盘（点空白/消息区后键盘仍开的场景）。
+			//    用 click（tap 完成）而非 pointerdown：滚动手势不产生 click，避免滑动消息区时误收键盘。
+			document.addEventListener("click", (event) => {
+				if (!isMobileActive()) return;
+				const t = event.target;
+				if (!isElement(t) || typeof t.closest !== "function") return;
+				if (t.closest("textarea,input,[contenteditable],[data-dshmob-role=\"composer\"],[data-dshmob-overlay]")) return; // 输入区/浮层内不干预
+				const active = document.activeElement;
+				if (isElement(active) && active.matches("textarea,input,[contenteditable]")) active.blur();
+			}, { capture: true, signal: rt.abort.signal });
+			// ② 输入元素失焦（焦点落到非输入元素）→ 兜底 blur，防止 iOS 键盘悬空不收起
+			document.addEventListener("focusout", (event) => {
+				if (!isMobileActive()) return;
+				const t = event.target;
+				if (!isElement(t) || !t.matches("textarea,input,[contenteditable]")) return;
+				const related = event.relatedTarget;
+				if (isElement(related) && related.matches("textarea,input,[contenteditable]")) return; // 输入框之间转移不收
+				const active = document.activeElement;
+				if (isElement(active) && active.matches("textarea,input,[contenteditable]")) active.blur();
+			}, { capture: true, signal: rt.abort.signal });
+			// ③ 切后台 → 收起键盘；避免切回前台时 iOS 重新弹出
+			document.addEventListener("visibilitychange", () => {
+				if (!document.hidden) return;
+				const active = document.activeElement;
+				if (isElement(active) && active.matches("textarea,input,[contenteditable]")) active.blur();
+			}, { signal: rt.abort.signal });
 		}		// 滚动时汉堡变淡（只处理消息滚动容器，避免全页 scroll 遍历）
 		function mountBurgerScrollFade(rt) {
 			let timer = null;
