@@ -846,11 +846,20 @@ window.__ModuleLoader__.load({
 				const active = document.activeElement;
 				if (isElement(active) && active.matches("textarea,input,[contenteditable]")) active.blur();
 			}, { capture: true, signal: rt.abort.signal });
-			// ③ 切后台 → 收起键盘；避免切回前台时 iOS 重新弹出
-			document.addEventListener("visibilitychange", () => {
-				if (!document.hidden) return;
+			// ③ 切后台即时收起输入法（用户要求：切走时就收，不要等切回）：
+			//    iOS 上 visibilitychange 在切后台时可能延迟数秒、甚至切回时才补发，
+			//    导致 blur 拖到切回才执行（键盘"延迟收起"）。window blur / pagehide
+			//    在切走瞬间触发——此时清掉输入框焦点，切回时无聚焦输入框，iOS 不会自动重弹键盘。
+			const dismissInput = () => {
+				if (!isMobileActive()) return;
 				const active = document.activeElement;
 				if (isElement(active) && active.matches("textarea,input,[contenteditable]")) active.blur();
+			};
+			window.addEventListener("blur", dismissInput, { signal: rt.abort.signal });
+			window.addEventListener("pagehide", dismissInput, { signal: rt.abort.signal });
+			document.addEventListener("visibilitychange", () => {
+				// hidden：兜底（window blur 未派发的极端情况）；visible：清残留焦点防自动重弹
+				dismissInput();
 			}, { signal: rt.abort.signal });
 		}		// 滚动时汉堡变淡（只处理消息滚动容器，避免全页 scroll 遍历）
 		function mountBurgerScrollFade(rt) {
