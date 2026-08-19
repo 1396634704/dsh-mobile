@@ -513,7 +513,7 @@ window.__ModuleLoader__.load({
 					if (t.closest("input,textarea,[contenteditable],.hHd-Xa_toggle")) return;
 					if (t.closest(".VOzbGW_trigger")) { window.setTimeout(() => { closeDrawer(rt); requestAnimationFrame(() => syncOverlayStack(rt)); }, 0); return; }
 				// 抽屉内浏览操作不关抽屉（v2.1/v2.2 教训：弹菜单按钮被误判关抽屉）
-				if (t.closest(".qDHVXG_sessionOverflowButton,.qDHVXG_searchButton,[class*=overflow i],[aria-haspopup],.YDXeBa_iconButton")) return;
+				if (t.closest(".qDHVXG_sessionOverflowButton,.qDHVXG_searchButton,[class*=overflow i],[aria-haspopup],.YDXeBa_iconButton,.YDXeBa_projectRow")) return;
 				rt.state.suppressInputFocusUntil = Date.now() + 500;
 				window.setTimeout(() => closeDrawer(rt), 0);
 			}, { signal: rt.abort.signal });
