@@ -716,11 +716,16 @@ window.__ModuleLoader__.load({
 			if (!isElement(sc)) { anchor = null; return; }
 			const rect = sc.getBoundingClientRect();
 			const first = Array.from(sc.children).map((el) => ({ el, top: el.getBoundingClientRect().top - rect.top })).find((x) => x.top >= -8) || null;
-			anchor = { sc, pinned: sc.scrollHeight - sc.scrollTop - sc.clientHeight <= 48, first: first === null ? null : { el: first.el, delta: first.top } };
+			// pinned 阈值收紧到 12px：用户贴着底部读最新时才贴底恢复；48px 太宽会把
+			// "刚离开底部附近读消息"误判为贴底，视口变化时被强行拉回底部（对话往上翻）
+			anchor = { sc, pinned: sc.scrollHeight - sc.scrollTop - sc.clientHeight <= 12, first: first === null ? null : { el: first.el, delta: first.top }, clientH: sc.clientHeight };
 		}
 		function restoreScrollAnchor() {
 			if (anchor === null || !isElement(anchor.sc) || !anchor.sc.isConnected) { anchor = null; return; }
 			const sc = anchor.sc;
+			// 布局巨变（键盘弹收/切后台恢复导致的容器高度跳变）时补偿公式基于过渡中间态，
+			// 恢复后仍会错位——放弃补偿，保持当前位置让浏览器自然 clamp
+			if (Math.abs(sc.clientHeight - anchor.clientH) > 100) { anchor = null; return; }
 			if (anchor.pinned) sc.scrollTop = sc.scrollHeight;
 			else if (anchor.first !== null && anchor.first.el.isConnected) sc.scrollTop += anchor.first.el.getBoundingClientRect().top - sc.getBoundingClientRect().top - anchor.first.delta;
 			anchor = null;
@@ -728,6 +733,31 @@ window.__ModuleLoader__.load({
 		function scheduleAnchorRestore() {
 			if (anchorRestoreTimer !== null) window.clearTimeout(anchorRestoreTimer);
 			anchorRestoreTimer = window.setTimeout(() => { anchorRestoreTimer = null; restoreScrollAnchor(); }, 150);
+		}
+		function clearScrollAnchor() {
+			anchor = null;
+			if (anchorRestoreTimer !== null) { window.clearTimeout(anchorRestoreTimer); anchorRestoreTimer = null; }
+		}
+		// iOS 点输入框弹键盘时，Safari 会滚动包含 textarea 的祖先容器（消息区）露出输入框，
+		// 把正在读历史的人拉到底部。focusin 记录消息区位置，键盘动画结束后恢复；
+		// 用户在此期间主动点击（pointerdown）即放弃恢复。
+		let focusScrollGuard = null;
+		function mountFocusScrollGuard(rt) {
+			if (!FEATURES.viewportKeyboard) return;
+			document.addEventListener("focusin", (event) => {
+				if (!isMobileActive() || !isElement(event.target) || !event.target.matches("textarea")) return;
+				const sc = roleCache.messageList;
+				if (!isElement(sc)) return;
+				const guard = { top: sc.scrollTop, at: Date.now() };
+				focusScrollGuard = guard;
+				window.setTimeout(() => {
+					if (focusScrollGuard !== guard) return;
+					focusScrollGuard = null;
+					if (Date.now() - guard.at > 1500) return; // 过期放弃
+					if (Math.abs(sc.scrollTop - guard.top) > 8) sc.scrollTop = guard.top; // 非用户滚动：恢复
+				}, 700);
+			}, { capture: true, signal: rt.abort.signal });
+			document.addEventListener("pointerdown", () => { focusScrollGuard = null; }, { capture: true, signal: rt.abort.signal });
 		}
 		function mountViewportSync(rt) {
 			if (!FEATURES.viewportKeyboard) return;
@@ -746,9 +776,11 @@ window.__ModuleLoader__.load({
 			}, { capture: true, signal: rt.abort.signal });
 			// 切后台：iOS 冻结期会丢弃 visualViewport/window 事件，且冻结期间键盘/地址栏状态已变，
 			// 旧锚点与待执行的补偿全部过期——切出即作废；恢复后由 mountHealthCheck 的 resyncViewport 按当前视口重同步。
-			document.addEventListener("visibilitychange", () => {
-				if (document.hidden) { anchor = null; if (anchorRestoreTimer !== null) { window.clearTimeout(anchorRestoreTimer); anchorRestoreTimer = null; } }
-			}, { signal: rt.abort.signal });
+			// 注意 iOS 的 visibilitychange 可能延迟到切回才补发：window blur/pagehide 在切走瞬间触发，必须在此即时清理。
+			document.addEventListener("visibilitychange", () => { if (document.hidden) clearScrollAnchor(); }, { signal: rt.abort.signal });
+			window.addEventListener("blur", clearScrollAnchor, { signal: rt.abort.signal });
+			window.addEventListener("pagehide", clearScrollAnchor, { signal: rt.abort.signal });
+			mountFocusScrollGuard(rt);
 			syncVisualViewport(rt);
 		}
 		/* ==================== 停止按钮去重 / 生成结束提示（迁入统一调度，§2.3） ==================== */
