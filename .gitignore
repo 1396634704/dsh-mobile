@@ -1,0 +1,9 @@
+# 测试截图与验证产物（体积大、含会话截图，不入库）
+artifacts/
+
+# 历史备份
+*.bak*
+*.bak
+
+# macOS
+.DS_Store
