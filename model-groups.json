@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "模型选择器分组配置：由 build-model-groups.mjs 合并进 dsh-mobile client.js。修改本文件后请重新运行构建脚本。",
+  "note": "模型选择器分组配置：本机/GitHub 双向 5 秒同步，浏览器端 5 秒热更新，无需刷新页面（v2）。",
   "fallbackVendor": "其他",
   "groups": [
     {

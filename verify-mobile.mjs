@@ -746,10 +746,11 @@ async function p3ComposerPopupsCase() {
 	await sleep(650);
 	assertTrue("P3 权限菜单弹出且可见（未被 overflow 裁剪）", permTrigger && await popupOk('[role="menu"]'), JSON.stringify({ permTrigger }));
 	await esc(); await sleep(500);
-	// 2) 模型菜单（.uV2eYG_trailing 内）
-	const modelTrigger = await clickSel("._7KE1Ra_trigger");
+	// 2) 模型菜单（dsh-mobile 分组组件接管后为 .dshmob-ms-trigger；未接管时是内置 ._7KE1Ra_trigger）
+	const groupedModel = await page.eval(`document.querySelector(".dshmob-ms-trigger") !== null`);
+	const modelTrigger = groupedModel ? await clickSel(".dshmob-ms-trigger") : await clickSel("._7KE1Ra_trigger");
 	await sleep(650);
-	assertTrue("P3 模型菜单弹出且可见", modelTrigger && await popupOk("._7KE1Ra_menu"), JSON.stringify({ modelTrigger }));
+	assertTrue("P3 模型菜单弹出且可见", modelTrigger && (groupedModel ? await popupOk(".dshmob-ms-menu") : await popupOk("._7KE1Ra_menu")), JSON.stringify({ modelTrigger, groupedModel }));
 	await esc(); await sleep(500);
 	// 3) 命令 picker
 	const cmdTrigger = await clickSel(".uV2eYG_add");
@@ -788,7 +789,7 @@ async function p4SendVisibleCase() {
 	await sleep(800);
 	const measure = () => page.eval(`(() => {
 		const send = document.querySelector(".uV2eYG_primary");
-		const model = document.querySelector("._7KE1Ra_trigger");
+		const model = document.querySelector(".dshmob-ms-trigger") ?? document.querySelector("._7KE1Ra_trigger");
 		if (!send) return null;
 		const sr = send.getBoundingClientRect(), mr = model ? model.getBoundingClientRect() : null;
 		return {

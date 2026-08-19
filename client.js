@@ -995,9 +995,10 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 /* ==== dshmob-model-groups-data:end ==== */
 		const THINK_PREF_KEY = "dsh:think-default-expanded";
 		// route id → 分组元数据（查表，避免每次渲染都遍历分组树）
-		const MODEL_ROUTE_INDEX = (() => {
+		// 分组数据运行时 store：初始来自构建期内嵌数据；热更新轮询到新数据后原地替换并通知订阅者。
+		function buildRouteIndex(data) {
 			const index = {};
-			for (const group of MODEL_GROUPS_DATA.groups) {
+			for (const group of data.groups) {
 				for (const relay of group.relays) {
 					for (const route of relay.routes) {
 						index[route.id] = { vendor: group.vendor, relay: relay.relay, domain: relay.domain };
@@ -1005,7 +1006,38 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 				}
 			}
 			return index;
-		})();
+		}
+		const modelGroupsStore = {
+			data: MODEL_GROUPS_DATA,
+			routeIndex: buildRouteIndex(MODEL_GROUPS_DATA),
+			listeners: new Set()
+		};
+		function setModelGroupsData(data) {
+			modelGroupsStore.data = data;
+			modelGroupsStore.routeIndex = buildRouteIndex(data);
+			for (const listener of modelGroupsStore.listeners) listener();
+		}
+		// 热更新：每 5 秒拉取本插件 client.js 并提取分组数据段；数据变化时无需刷新页面。
+		function startModelGroupsHotReload(ctx) {
+			const tick = async () => {
+				try {
+					const response = await fetch("/plugins/dsh-mobile/client.js?hot=" + Date.now(), { cache: "no-store" });
+					if (!response.ok) return;
+					const text = await response.text();
+					const match = text.match(/\/\* ==== dshmob-model-groups-data:begin ==== \*\/\s*const MODEL_GROUPS_DATA = (\{[\s\S]*?\});\s*\/\* ==== dshmob-model-groups-data:end ==== \*\//);
+					if (match === null) return;
+					const data = JSON.parse(match[1]);
+					if (JSON.stringify(data) === JSON.stringify(modelGroupsStore.data)) return;
+					setModelGroupsData(data);
+					console.info("dsh-mobile: 模型分组配置热更新（" + data.groups.length + " 个厂商）");
+				} catch (_) {}
+			};
+			ctx.effect(() => {
+				tick();
+				const timer = setInterval(tick, 5000);
+				return () => clearInterval(timer);
+			});
+		}
 		function readThinkPref() {
 			try { return localStorage.getItem(THINK_PREF_KEY) !== "0"; } catch (_) { return true; }
 		}
@@ -1027,14 +1059,14 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const tree = [];
 			const vendorIndex = new Map();
 			for (const group of groups) {
-				const meta = MODEL_ROUTE_INDEX[group.id];
+				const meta = modelGroupsStore.routeIndex[group.id];
 				let vendorName;
 				let relayName;
 				if (meta) {
 					vendorName = meta.vendor;
 					relayName = meta.relay === null || meta.relay === void 0 ? null : meta.domain ? meta.relay + " · " + meta.domain : meta.relay;
 				} else {
-					vendorName = MODEL_GROUPS_DATA.fallbackVendor;
+					vendorName = modelGroupsStore.data.fallbackVendor;
 					relayName = group.name;
 				}
 				let node = vendorIndex.get(vendorName);
@@ -1091,7 +1123,13 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const effort = current?.reasoningEffort ?? reasoning?.defaultEffort;
 			const effortLabel = reasoning === void 0 ? void 0 : effort === void 0 ? "Default" : (reasoning.efforts ?? []).find((level) => level.id === effort)?.name ?? effort;
 			const modelLabel = currentChoice?.model.name ?? "选择模型";
-			const vendorTree = react.useMemo(() => buildVendorTree(dir.groups), [dir.groups]);
+			const [groupsTick, setGroupsTick] = react.useState(0);
+			react.useEffect(() => {
+				const listener = () => setGroupsTick((value) => value + 1);
+				modelGroupsStore.listeners.add(listener);
+				return () => modelGroupsStore.listeners.delete(listener);
+			}, []);
+			const vendorTree = react.useMemo(() => buildVendorTree(dir.groups), [dir.groups, groupsTick]);
 
 			const show = () => {
 				setPane("root");
@@ -1305,6 +1343,7 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const api = connection.api;
 			slots.inject("conversation.input.model", () => slots.register({
 				name: "conversation.input.model",
+				priority: -1, // 内置 ModelSelect 注册在 priority 0；single slot 按 priority 升序取最低者渲染，-1 稳定覆盖且同档位唯一
 				inject: (sessionId) => {
 					if (sessionId === void 0) return { available: false, sessionId: void 0, api };
 					return { available: true, sessionId, api };
@@ -1324,8 +1363,11 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			if (typeof document === "undefined") return;
 			injectModelGroupsCss();
 			injectThinkSettingCss();
-			mountModelGroupSelect(ctx);
-			mountThinkSetting(ctx);
+			// 每个模块独立隔离：模型分组注册失败绝不能拖垮 Think 设置等其余模块
+			// （历史事故：conversation.input.model 与内置注册同 priority 冲突抛异常，导致 Think 行从未注册）
+			try { mountModelGroupSelect(ctx); } catch (error) { console.error("dsh-mobile: 模型分组选择器初始化失败", error); }
+			try { mountThinkSetting(ctx); } catch (error) { console.error("dsh-mobile: Think 设置初始化失败", error); }
+			startModelGroupsHotReload(ctx);
 		}
 
 		/* ==================== 插件主体 ==================== */
