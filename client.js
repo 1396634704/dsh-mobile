@@ -1266,7 +1266,8 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const [open, setOpen] = react.useState(false);
 			const [pane, setPane] = react.useState("root");
 			const [busy, setBusy] = react.useState(false);
-			const [collapsed, setCollapsed] = react.useState({});
+			// 厂商分组展开集合（用户要求：打开时默认全收起，点击厂商才展开）
+			const [expanded, setExpanded] = react.useState({});
 			const [dir, setDir] = react.useState({ status: "idle", groups: [], failures: [], current: null, error: null });
 			const [memEffort, setMemEffort] = react.useState(readEffortMemory);
 			const rootRef = react.useRef(null);
@@ -1338,6 +1339,7 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 
 			const show = () => {
 				setPane("root");
+				setExpanded({}); // 每次打开默认全收起（用户要求）
 				setOpen(true);
 				load();
 			};
@@ -1422,14 +1424,14 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 					dir.failures.map((failure) => react.createElement("div", { key: failure.id, className: "dshmob-ms-warning" }, failure.name + " 加载失败：" + failure.message)),
 					react.createElement("div", { className: "dshmob-ms-groups" },
 						vendorTree.map((vendor) => {
-							const isCollapsed = collapsed[vendor.vendor] === true;
+							const isExpanded = expanded[vendor.vendor] === true;
 							return react.createElement("div", { key: vendor.vendor, className: "dshmob-ms-sect" },
-								react.createElement("button", { type: "button", className: "dshmob-ms-vendor", "aria-expanded": !isCollapsed, onClick: () => setCollapsed((prev) => ({ ...prev, [vendor.vendor]: !isCollapsed })), children: [
+								react.createElement("button", { type: "button", className: "dshmob-ms-vendor", "aria-expanded": isExpanded, onClick: () => setExpanded((prev) => ({ ...prev, [vendor.vendor]: !isExpanded })), children: [
 									react.createElement("span", null, vendor.vendor),
 									react.createElement("span", { className: "dshmob-ms-count" }, String(vendor.count)),
-									react.createElement("span", { className: isCollapsed ? "dshmob-ms-vchev dshmob-ms-vchev-collapsed" : "dshmob-ms-vchev" }, MsChevronDown({}))
+									react.createElement("span", { className: isExpanded ? "dshmob-ms-vchev" : "dshmob-ms-vchev dshmob-ms-vchev-collapsed" }, MsChevronDown({}))
 								] }),
-								!isCollapsed ? vendor.relays.map((bucket) => react.createElement(react.Fragment, { key: bucket.key },
+								isExpanded ? vendor.relays.map((bucket) => react.createElement(react.Fragment, { key: bucket.key },
 									bucket.relay !== null ? react.createElement("div", { className: "dshmob-ms-relay" }, bucket.relay) : null,
 									bucket.groups.map((group) => group.models.map((model) => {
 										const selected = current?.provider === group.id && current.model === model.id;
