@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
 		const VERSION = "3.3.0";
 		const RUNTIME_KEY = "__dshMobileRuntimeV3";
 		// 模块级开关（设计文档 4.5）：出问题时先关对应 flag 刷新，不必回退整个插件。
-		const FEATURES = Object.freeze({ roleResolver: true, detailsSheet: true, overlaySheets: true, viewportKeyboard: true, touchTargets: true, conversationDensity: true, clipboardShim: true, gestureArbitration: true, diagnostics: true });
+		const FEATURES = Object.freeze({ roleResolver: true, detailsSheet: true, overlaySheets: true, viewportKeyboard: true, touchTargets: true, conversationDensity: true, clipboardShim: true, gestureArbitration: true, diagnostics: true, permissionMemory: true });
 		const STOP_LABELS = ["停止生成", "Stop generating", "停止"];
 		const CLOSE_DETAILS_LABELS = ["关闭详情", "Close details"];
 		const BURGER_POS_KEY = "dsh-mobile:burgerPos:v2";
@@ -861,6 +861,95 @@ window.__ModuleLoader__.load({
 				// hidden：兜底（window blur 未派发的极端情况）；visible：清残留焦点防自动重弹
 				dismissInput();
 			}, { signal: rt.abort.signal });
+		}
+		/* ==================== 权限模式全局记忆（用户要求同思考程度） ==================== */
+		// DSH 的权限模式（sandbox + approval 组合，如 Full access / Workspace write）是会话级状态，
+		// 新开会话/切换会话会回到默认（Workspace write）。方案：选择变化时写入本地记忆，
+		// 检测到当前会话仍是默认模式且记忆存在时，自动走一次 /permission 选择链路（含 Full access 确认）。
+		const PERMISSION_MEM_KEY = "dsh:permission";
+		function presetFromAccessLabel(label) {
+			if (typeof label !== "string") return null;
+			const name = String(label).split(/[：:]\s*/).pop()?.trim();
+			if (name === void 0 || name === "") return null;
+			if (name === "Full access") return "danger-full-access";
+			// displayName 输出 Title Case 空格分隔（"Workspace Write"），统一转 kebab-case 后校验
+			const kebab = name.toLowerCase().replace(/ +/g, "-");
+			return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(kebab) ? kebab : null;
+		}
+		function presetToAccessLabel(preset) {
+			if (preset === "danger-full-access") return "Full access";
+			return preset.split("-").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+		}
+		function mountPermissionMemory(rt) {
+			if (!FEATURES.permissionMemory) return;
+			let lastRecorded = null;
+			let lastApplyAt = 0;
+			const readMem = () => { try { return localStorage.getItem(PERMISSION_MEM_KEY); } catch (_) { return null; } };
+			const record = (preset) => {
+				if (preset === null || preset === lastRecorded) return;
+				lastRecorded = preset;
+				try { localStorage.setItem(PERMISSION_MEM_KEY, preset); } catch (_) {}
+			};
+			// 自动应用：仅当触发器可见、当前模式与记忆不同（即仍为默认）、节流窗口外
+			const applyMem = () => {
+				if (!isMobileActive() || Date.now() - lastApplyAt < 12000) return;
+				const trig = document.querySelector(".Sh0Q9G_trigger");
+				if (!isElement(trig) || trig.disabled || trig.getBoundingClientRect().width === 0) return;
+				const mem = readMem();
+				if (mem === null) return;
+				const current = presetFromAccessLabel(trig.getAttribute("aria-label"));
+				if (current === null || current === mem) return;
+				lastApplyAt = Date.now();
+				const targetLabel = presetToAccessLabel(mem);
+				try {
+					trig.click();
+					window.setTimeout(() => {
+						const item = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"],[role="option"],button')]
+							.find((el) => (el.textContent || "").trim() === targetLabel || (el.getAttribute("aria-label") || "").includes(targetLabel));
+						if (!isElement(item)) { document.body.click?.(); return; } // 未找到目标项：点掉菜单，静默放弃
+						item.click();
+						// Full access 需过风险确认弹窗：先勾选风险声明（React 受控 checkbox），再点确认
+						window.setTimeout(() => {
+							const dlg = document.querySelector('[role="dialog"]');
+							if (!isElement(dlg)) return;
+							const cb = dlg.querySelector('input[type="checkbox"]');
+							if (isElement(cb) && !cb.checked) cb.click();
+							window.setTimeout(() => {
+								const confirm = [...dlg.querySelectorAll("button")].find((el) => /启用 Full access|Enable Full access/.test((el.textContent || "").trim()));
+								if (isElement(confirm) && !confirm.disabled) confirm.click();
+							}, 250);
+						}, 400);
+					}, 300);
+				} catch (_) {}
+			};
+			let applyScheduled = false;
+			const scheduleApply = () => {
+				if (applyScheduled) return;
+				applyScheduled = true;
+				requestAnimationFrame(() => { applyScheduled = false; applyMem(); });
+			};
+			// 用户选择记录：仅权限菜单项的点击（用户真实操作），aria-label 变化不记录——
+			// 否则会话切换/自动应用引起的 label 变化会把记忆覆盖成当前值，自动应用自我短路
+			document.addEventListener("click", (event) => {
+				if (!isMobileActive()) return;
+				const t = event.target;
+				if (!isElement(t) || typeof t.closest !== "function") return;
+				const item = t.closest('[role="menu"] [role="menuitemradio"],[role="menu"] button,[role="menu"] [role="option"]');
+				if (item === null) return;
+				record(presetFromAccessLabel((item.textContent || "").trim()));
+			}, { capture: true, signal: rt.abort.signal });
+			// 监听：aria-label / DOM 变化（会话切换、新会话渲染、自动应用成功）→ 触发自动应用检查
+			const ob = new MutationObserver((entries) => {
+				let touched = false;
+				for (const entry of entries) {
+					if (entry.type === "attributes" && entry.attributeName === "aria-label") touched = true;
+					if (entry.type === "childList") touched = true;
+				}
+				if (touched) scheduleApply();
+			});
+			ob.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label"] });
+			rt.cleanups.push(() => ob.disconnect());
+			window.setTimeout(scheduleApply, 2500); // 首帧尝试
 		}		// 滚动时汉堡变淡（只处理消息滚动容器，避免全页 scroll 遍历）
 		function mountBurgerScrollFade(rt) {
 			let timer = null;
@@ -1018,7 +1107,7 @@ window.__ModuleLoader__.load({
 			whenBodyReady(() => {
 				const scheduler = createScheduler(rt);
 				rt.cleanups.push(() => scheduler.observer.disconnect());
-				[mountDetailsChrome, mountDrawerChrome, mountEdgeSwipeGesture, mountDirectorySync, mountViewportSync, mountFocusSuppressors, mountBurgerScrollFade, mountEscapeHandler, mountStatusChannel, mountLongTaskCounter, mountHovercardDismiss, mountOnboardingDismiss, mountHealthCheck].forEach((fn) => fn(rt));
+				[mountDetailsChrome, mountDrawerChrome, mountEdgeSwipeGesture, mountDirectorySync, mountViewportSync, mountFocusSuppressors, mountPermissionMemory, mountBurgerScrollFade, mountEscapeHandler, mountStatusChannel, mountLongTaskCounter, mountHovercardDismiss, mountOnboardingDismiss, mountHealthCheck].forEach((fn) => fn(rt));
 				installClipboardShim(rt);
 				const mq = window.matchMedia(MOBILE_QUERY);
 				const onChange = (event) => { if (event.matches) { ensureRoles(true); activateMobile(rt); } else deactivateMobile(rt); };
