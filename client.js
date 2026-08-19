@@ -884,22 +884,48 @@ window.__ModuleLoader__.load({
 			if (!FEATURES.permissionMemory) return;
 			let lastRecorded = null;
 			let lastApplyAt = 0;
+			let failCount = 0;
+			let lastFailLabel = null;
+			let lastInputAt = 0; // 最近一次真实输入时间（打字时不打扰）
+			let lastInteractionAt = 0; // 最近一次用户交互（点击/按键/输入）时间
+			let sessionChangedAt = Date.now(); // 会话切换信号时间（自动应用只在切换后短窗口内尝试）
 			const readMem = () => { try { return localStorage.getItem(PERMISSION_MEM_KEY); } catch (_) { return null; } };
 			const record = (preset) => {
 				if (preset === null || preset === lastRecorded) return;
 				lastRecorded = preset;
 				try { localStorage.setItem(PERMISSION_MEM_KEY, preset); } catch (_) {}
 			};
-			// 自动应用：仅当触发器可见、当前模式与记忆不同（即仍为默认）、节流窗口外
+			// 用户真实交互计时（pointerdown/keydown/input 均视为正在使用页面）
+			const markInteraction = () => { lastInteractionAt = Date.now(); };
+			document.addEventListener("pointerdown", markInteraction, { capture: true, signal: rt.abort.signal });
+			document.addEventListener("keydown", markInteraction, { capture: true, signal: rt.abort.signal });
+			document.addEventListener("input", (event) => {
+				const t = event.target;
+				if (isElement(t) && t.matches("textarea,input,[contenteditable]")) { lastInputAt = Date.now(); markInteraction(); }
+			}, { capture: true, signal: rt.abort.signal });
+			// 自动应用：仅当触发器可见、当前模式与记忆不同（即仍为默认）、节流窗口外。
+			// 克制策略（用户反馈"打字/选模型时弹窗乱弹"）：
+			// ① 仅在会话切换后的 10 秒窗口内尝试（窗口过后不再打扰日常使用）；
+			// ② 最近 10 秒有任何用户交互（点击/按键/输入）时跳过——选模型、滚动、打字都算；
+			//    只监听 aria-label 变化与低频轮询，打字产生的 DOM 变化不会触发；
+			// ③ 已有浮层打开（模型菜单/权限菜单/对话框等）时跳过，绝不叠加弹出；
+			// ④ 同一种"当前模式"连续失败 3 次后放弃，直到会话切换才重新武装。
 			const applyMem = () => {
 				if (!isMobileActive() || Date.now() - lastApplyAt < 12000) return;
+				if (Date.now() - sessionChangedAt > 10000) return; // 超出会话切换窗口
+				if (Date.now() - lastInteractionAt < 10000) return; // 用户正在操作
+				if (Date.now() - lastInputAt < 30000) return; // 最近在输入
+				if (document.querySelector(".dshmob-ms-menu,[role=menu],[role=dialog],[data-dshmob-overlay]") !== null) return; // 已有浮层打开
 				const trig = document.querySelector(".Sh0Q9G_trigger");
 				if (!isElement(trig) || trig.disabled || trig.getBoundingClientRect().width === 0) return;
 				const mem = readMem();
 				if (mem === null) return;
 				const current = presetFromAccessLabel(trig.getAttribute("aria-label"));
 				if (current === null || current === mem) return;
+				if (current !== lastFailLabel) { lastFailLabel = current; failCount = 0; } // 新会话（新默认态）重新武装
+				if (failCount >= 3) return; // 同会话连续失败放弃，避免反复骚扰
 				lastApplyAt = Date.now();
+				failCount += 1;
 				const targetLabel = presetToAccessLabel(mem);
 				try {
 					trig.click();
@@ -939,16 +965,31 @@ window.__ModuleLoader__.load({
 				record(presetFromAccessLabel((item.textContent || "").trim()));
 			}, { capture: true, signal: rt.abort.signal });
 			// 监听：aria-label / DOM 变化（会话切换、新会话渲染、自动应用成功）→ 触发自动应用检查
+			// 触发信号收紧（用户反馈"打字时弹窗乱弹"）：打字产生的 DOM 变化不再触发自动应用——
+			// 只监听权限触发器 aria-label 变化（会话切换/权限状态变化）；外加 5 秒低频轮询兜底
+			// （新旧会话权限相同时 label 不变，靠节点更换检测发现会话切换）。
 			const ob = new MutationObserver((entries) => {
-				let touched = false;
 				for (const entry of entries) {
-					if (entry.type === "attributes" && entry.attributeName === "aria-label") touched = true;
-					if (entry.type === "childList") touched = true;
+					if (entry.type === "attributes" && entry.attributeName === "aria-label") { sessionChangedAt = Date.now(); scheduleApply(); break; }
 				}
-				if (touched) scheduleApply();
 			});
-			ob.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label"] });
+			ob.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["aria-label"] });
 			rt.cleanups.push(() => ob.disconnect());
+			let cachedTrig = null;
+			const pollTimer = window.setInterval(() => {
+				const trig = document.querySelector(".Sh0Q9G_trigger");
+				if (isElement(trig) && trig !== cachedTrig) {
+					cachedTrig = trig; // 触发器节点更换 = 会话切换 → 重新武装并检查
+					lastFailLabel = null;
+					failCount = 0;
+					sessionChangedAt = Date.now();
+					scheduleApply();
+				} else if (!isElement(cachedTrig) && !isElement(trig)) {
+					cachedTrig = trig ?? null;
+				}
+				scheduleApply(); // 兜底：applyMem 内部有窗口/输入/节流/失败上限，低频调用安全
+			}, 5000);
+			rt.cleanups.push(() => window.clearInterval(pollTimer));
 			window.setTimeout(scheduleApply, 2500); // 首帧尝试
 		}		// 滚动时汉堡变淡（只处理消息滚动容器，避免全页 scroll 遍历）
 		function mountBurgerScrollFade(rt) {
