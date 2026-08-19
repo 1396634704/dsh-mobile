@@ -1101,18 +1101,29 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const rootRef = react.useRef(null);
 			const triggerRef = react.useRef(null);
 
+			// 挂载/切换会话即拉取当前模型：此前只在打开菜单时才 load，
+			// 切换会话后触发器恒显「选择模型」，像被清空（bug）。
+			const loadSeq = react.useRef(0);
 			const load = react.useCallback(() => {
 				if (sessionId === void 0) return;
+				const seq = ++loadSeq.current;
 				setDir((prev) => ({ ...prev, status: "loading", error: null }));
 				api.sessions.models({ sessionId }).then((res) => {
+					if (seq !== loadSeq.current) return; // 会话已切换，丢弃过期响应
 					// callUnary 返回 { rpcId, result: { ok, value } } 信封，value 才是业务数据
 					const value = res && res.result && res.result.ok ? res.result.value : null;
 					if (value === null) throw new Error(res && res.result && res.result.error ? res.result.error.message : "模型列表加载失败");
 					setDir({ status: "ready", groups: value.groups ?? [], failures: value.failures ?? [], current: value.current ?? null, error: null });
 				}).catch((error) => {
+					if (seq !== loadSeq.current) return;
 					setDir((prev) => ({ ...prev, status: "error", error: String(error && error.message ? error.message : error) }));
 				});
 			}, [sessionId, api]);
+			react.useEffect(() => {
+				// 会话变化时清掉上一会话的缓存态，避免短暂显示旧会话的模型名
+				setDir({ status: "idle", groups: [], failures: [], current: null, error: null });
+				load();
+			}, [load]);
 
 			react.useEffect(() => {
 				if (!open) return;
