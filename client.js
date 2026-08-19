@@ -1100,7 +1100,10 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const load = react.useCallback(() => {
 				if (sessionId === void 0) return;
 				setDir((prev) => ({ ...prev, status: "loading", error: null }));
-				api.sessions.models({ sessionId }).then((value) => {
+				api.sessions.models({ sessionId }).then((res) => {
+					// callUnary 返回 { rpcId, result: { ok, value } } 信封，value 才是业务数据
+					const value = res && res.result && res.result.ok ? res.result.value : null;
+					if (value === null) throw new Error(res && res.result && res.result.error ? res.result.error.message : "模型列表加载失败");
 					setDir({ status: "ready", groups: value.groups ?? [], failures: value.failures ?? [], current: value.current ?? null, error: null });
 				}).catch((error) => {
 					setDir((prev) => ({ ...prev, status: "error", error: String(error && error.message ? error.message : error) }));
@@ -1144,8 +1147,10 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const choose = (group, model) => {
 				if (busy) return;
 				setBusy(true);
-				api.sessions.selectModel({ sessionId, provider: group.id, model: model.id }).then((value) => {
+				api.sessions.selectModel({ sessionId, provider: group.id, model: model.id }).then((res) => {
+					const value = res && res.result && res.result.ok ? res.result.value : null;
 					setBusy(false);
+					if (value === null) { setDir((prev) => ({ ...prev, error: res?.result?.error?.message ?? "选择模型失败" })); return; }
 					setDir((prev) => ({ ...prev, current: value.selected ?? { provider: group.id, model: model.id } }));
 					close(true);
 				}).catch((error) => {
@@ -1162,8 +1167,10 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 				const selection = { sessionId, provider: current.provider, model: current.model };
 				if (level !== void 0) selection.reasoningEffort = level;
 				setBusy(true);
-				api.sessions.selectModel(selection).then((value) => {
+				api.sessions.selectModel(selection).then((res) => {
+					const value = res && res.result && res.result.ok ? res.result.value : null;
 					setBusy(false);
+					if (value === null) { setDir((prev) => ({ ...prev, error: res?.result?.error?.message ?? "选择推理等级失败" })); return; }
 					setDir((prev) => ({ ...prev, current: value.selected ?? selection }));
 					close(true);
 				}).catch((error) => {
