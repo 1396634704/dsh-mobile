@@ -372,6 +372,61 @@ async function keyboardSimCase() {
 	await closePage(page);
 }
 
+/* ---------- K5：切后台再切回——视口强制重同步（"输入框被顶到很上面"修复的验收） ---------- */
+// iOS Safari 冻结期会丢弃 visualViewport resize/scroll 事件，切回前台后事件也可能不再派发，
+// --dshmob-vv-* 停留在旧值会让 frame 整体错位（输入框被顶到屏幕上部）。
+// 修复契约：visibilitychange→visible / pageshow 时按当前真实视口立即重同步 + 400ms 二次校准。
+async function bgResumeCase() {
+	const page = await newPage();
+	await page.setViewport(390, 844, true);
+	await page.navigate(TARGET_URL);
+	await page.waitActive();
+	// 键盘弹出态（可视高度 520）
+	await page.cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 520, deviceScaleFactor: 2, mobile: true, screenWidth: 390, screenHeight: 520 });
+	await sleep(800);
+	// 模拟"冻结期事件全部丢失"的残留：变量停留在与当前视口不一致的旧值（844/0）
+	await page.eval(`(() => {
+		document.body.style.setProperty("--dshmob-vv-height", "844px");
+		document.body.style.setProperty("--dshmob-vv-top", "0px");
+		document.body.style.setProperty("--dshmob-vv-bottom", "0px");
+		return true;
+	})()`);
+	// 模拟切后台（hidden）再切回（visible），期间只有 visibilitychange，无任何 resize/scroll 事件
+	await page.eval(`(() => {
+		window.__dshmobHidden = true;
+		Object.defineProperty(document, "hidden", { configurable: true, get: () => window.__dshmobHidden });
+		document.dispatchEvent(new Event("visibilitychange"));
+		window.__dshmobHidden = false;
+		document.dispatchEvent(new Event("visibilitychange"));
+		return true;
+	})()`);
+	await sleep(700); // 覆盖 400ms 二次校准
+	const resumed = await page.eval(`(() => {
+		const f = document.querySelector('[data-dshmob-role="frame"]');
+		const comp = document.querySelector('[data-dshmob-role="composer"]');
+		if (!f || !comp) return { ok: false };
+		const fr = f.getBoundingClientRect(), cr = comp.getBoundingClientRect();
+		const cs = getComputedStyle(document.body);
+		return { ok: true, varH: cs.getPropertyValue("--dshmob-vv-height").trim(), varTop: cs.getPropertyValue("--dshmob-vv-top").trim(), frameH: Math.round(fr.height), frameBottom: Math.round(fr.bottom), compVisible: cr.bottom <= window.innerHeight + 1 && cr.top >= 0 && cr.width > 0 && cr.height > 0, scrollTop: document.documentElement.scrollTop };
+	})()`);
+	await page.screenshot("K5-bg-resume-keyboard");
+	assertTrue("K5 后台恢复：变量按当前真实视口重同步", resumed.ok === true && resumed.varH === "520px" && resumed.varTop === "0px", JSON.stringify(resumed));
+	assertTrue("K5 后台恢复：frame 高度与 composer 位置正确", resumed.ok === true && resumed.frameH <= 521 && resumed.frameBottom <= 521 && resumed.compVisible === true, JSON.stringify(resumed));
+	assertTrue("K5 后台恢复：文档滚动归零", resumed.scrollTop === 0, JSON.stringify(resumed));
+	// 收起键盘（真实 resize 路径仍正常）
+	await page.cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true, screenWidth: 390, screenHeight: 844 });
+	await sleep(800);
+	const closed = await page.eval(`(() => {
+		const f = document.querySelector('[data-dshmob-role="frame"]');
+		const comp = document.querySelector('[data-dshmob-role="composer"]');
+		if (!f || !comp) return { ok: false };
+		const fr = f.getBoundingClientRect(), cr = comp.getBoundingClientRect();
+		return { ok: true, frameH: Math.round(fr.height), compVisible: cr.bottom <= window.innerHeight + 1 && cr.top >= 0 };
+	})()`);
+	assertTrue("K5 键盘收起：frame 恢复全高、composer 回位", closed.ok === true && closed.frameH >= 843 && closed.compVisible === true, JSON.stringify(closed));
+	await closePage(page);
+}
+
 /* ---------- M5：844px 横屏 = 断点外桌面边界（设计 §0：覆盖 320-768px） ---------- */
 async function touchLandscapeBoundaryCase(id, width, height) {
 	const page = await newPage();
@@ -772,6 +827,7 @@ try {
 	await run("K1", () => killSwitchCase());
 	await run("K2K3", () => fallbackCase());
 	await run("K4", () => keyboardSimCase());
+	await run("K5", () => bgResumeCase());
 	await run("P1A", () => p1DarkCase());
 	await run("P1B", () => p1ReducedMotionCase());
 	await run("P1C", () => p1FocusEscapeCase());

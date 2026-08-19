@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let react = require("react");
 		/* ==================== 常量与功能开关 ==================== */
 		const MOBILE_QUERY = "(max-width: 768px)";
 		const VERSION = "3.3.0";
@@ -739,6 +740,11 @@ window.__ModuleLoader__.load({
 			document.addEventListener("pointerdown", (event) => {
 				if (anchor !== null && isElement(event.target) && roleCache.messageList !== null && roleCache.messageList.contains(event.target)) anchor = null;
 			}, { capture: true, signal: rt.abort.signal });
+			// 切后台：iOS 冻结期会丢弃 visualViewport/window 事件，且冻结期间键盘/地址栏状态已变，
+			// 旧锚点与待执行的补偿全部过期——切出即作废；恢复后由 mountHealthCheck 的 resyncViewport 按当前视口重同步。
+			document.addEventListener("visibilitychange", () => {
+				if (document.hidden) { anchor = null; if (anchorRestoreTimer !== null) { window.clearTimeout(anchorRestoreTimer); anchorRestoreTimer = null; } }
+			}, { signal: rt.abort.signal });
 			syncVisualViewport(rt);
 		}
 		/* ==================== 停止按钮去重 / 生成结束提示（迁入统一调度，§2.3） ==================== */
@@ -920,11 +926,21 @@ window.__ModuleLoader__.load({
 					return;
 				}
 				if (!isMobileActive()) activateMobile(rt);
-				else { rt.metrics.fullScans += 1; onBatchComplete(rt); }
+				else { syncVisualViewport(rt); rt.metrics.fullScans += 1; onBatchComplete(rt); } // 轮询兜底：最长 5 秒内自愈任何视口同步遗漏
 			};
 			const startTimer = () => { if (timer === null) timer = window.setInterval(tick, 5000); };
 			const stopTimer = () => { if (timer !== null) { window.clearInterval(timer); timer = null; } };
-			document.addEventListener("visibilitychange", () => { document.hidden ? stopTimer() : (tick(), startTimer()); }, { signal: rt.abort.signal });
+			// 从后台/bfcache 恢复时强制重同步视口（修复"切后台再切回输入框被顶到很上面"）：
+			// iOS Safari 冻结期会丢弃 visualViewport resize/scroll 事件，切回后的键盘/地址栏过渡也可能
+			// 不再派发事件——--dshmob-vv-* 若停留在旧值，frame 会整体错位（输入框被顶到屏幕上部）。
+			// 恢复瞬间 vv 可能仍在过渡，故立即同步 + 400ms 后二次校准；5 秒健康轮询里的同步兜底极端场景。
+			const resyncViewport = () => {
+				if (!isMobile() || !isMobileActive() || !FEATURES.viewportKeyboard) return;
+				syncVisualViewport(rt);
+				window.setTimeout(() => { if (!rt.state.killed && isMobileActive()) syncVisualViewport(rt); }, 400);
+			};
+			document.addEventListener("visibilitychange", () => { document.hidden ? stopTimer() : (resyncViewport(), tick(), startTimer()); }, { signal: rt.abort.signal });
+			window.addEventListener("pageshow", resyncViewport, { signal: rt.abort.signal });
 			startTimer();
 			rt.cleanups.push(stopTimer);
 		}
@@ -972,10 +988,350 @@ window.__ModuleLoader__.load({
 				scheduler.scheduleEnhance(document.body);
 				if (isMobile() && missingKeyRoles().length === 0) activateMobile(rt); // 首帧增强 + 角色已就绪立即激活
 			});
-		}		/* ==================== 插件主体 ==================== */
+		}/* ==================== 模型选择器三级分组（厂商 → 中转站 → 模型） ==================== */
+		// 分组数据段由 build-model-groups.mjs 生成（model-groups.json → MODEL_GROUPS_DATA）。
+		/* ==== dshmob-model-groups-data:begin ==== */
+const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"vendor":"Claude","relays":[{"relay":"Micu","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-micu-d8f392093d"}]},{"relay":"My Claude #1","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-ed1f5dc52d"}]},{"relay":"My Claude #2","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-3f9e5ad789"}]},{"relay":"My Claude #3","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-e4c409d573"}]},{"relay":"My Claude #4","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-bfe1456f0f"}]},{"relay":"My Claude #5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-cc76973ddd"}]},{"relay":"micuop5","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-micuop5-b460a557ec"}]},{"relay":"op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-op5-31dbf913e2"}]},{"relay":"最贵op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-op5-709ee00a1a"}]}]},{"vendor":"Claude Desktop","relays":[{"relay":"c","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-c-b456bc562e"}]},{"relay":"gugu","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-gugu-1cfba570be"}]},{"relay":"micuop5","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-desktop-micuop5-e351d58d28"}]},{"relay":"op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-op5-56cfbcf59f"}]},{"relay":"满血最贵","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-provider-d300e369f4"}]}]},{"vendor":"Codex","relays":[{"relay":"78code","domain":"www.78code.cc/v1","routes":[{"id":"ccs-codex-78code-110a073623"}]},{"relay":"Micu","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-codex-micu-ea9aa069b4"}]},{"relay":"Micu copy","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-codex-micu-copy-cba2e922e1"}]},{"relay":"My Codex copy","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-my-codex-copy-2579fde3ad"}]},{"relay":"grok4.6","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-codex-grok4.6-a44be38201"}]},{"relay":"pro1","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-pro1-b6c5e835bf"}]},{"relay":"pro2","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-pro2-c840979fc1"}]},{"relay":"xx","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-xx-9c2616dcbd"}]},{"relay":"备用","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-provider-317a0c8d96"}]},{"relay":"牛逼拼车王","domain":"ai.nbcodex.com","routes":[{"id":"ccs-codex-provider-d140cb430f"}]},{"relay":"福利组","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-provider-5f803e8345"}]}]},{"vendor":"Grok Build","relays":[{"relay":"grok micu","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-grokbuild-grok-micu-80229a5dc8"}]}]},{"vendor":"Hermes","relays":[{"relay":"1","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-hermes-1-f6eeff2e9d"}]},{"relay":"grok45","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-hermes-grok45-40778e5d90"}]},{"relay":"micuapi","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-hermes-micuapi-6dc5843f40"}]}]},{"vendor":"OpenClaw","relays":[{"relay":"DeepSeek V4 Pro","domain":"api.deepseek.com","routes":[{"id":"ccs-openclaw-deepseek-v4-pro-a86ab826a8"}]}]}]};
+/* ==== dshmob-model-groups-data:end ==== */
+		const THINK_PREF_KEY = "dsh:think-default-expanded";
+		// route id → 分组元数据（查表，避免每次渲染都遍历分组树）
+		const MODEL_ROUTE_INDEX = (() => {
+			const index = {};
+			for (const group of MODEL_GROUPS_DATA.groups) {
+				for (const relay of group.relays) {
+					for (const route of relay.routes) {
+						index[route.id] = { vendor: group.vendor, relay: relay.relay, domain: relay.domain };
+					}
+				}
+			}
+			return index;
+		})();
+		function readThinkPref() {
+			try { return localStorage.getItem(THINK_PREF_KEY) !== "0"; } catch (_) { return true; }
+		}
+		// 内联 SVG 图标（不依赖 primitives 组件形状，样式随 currentColor）
+		function MsChevronDown(props) {
+			return react.createElement("svg", { width: 14, height: 14, viewBox: "0 0 14 14", "aria-hidden": true, className: props.className },
+				react.createElement("path", { d: "M4.5 5.5l2.5 2.5 2.5-2.5", fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }));
+		}
+		function MsChevronRight() {
+			return react.createElement("svg", { width: 14, height: 14, viewBox: "0 0 14 14", "aria-hidden": true },
+				react.createElement("path", { d: "M5.5 4.5l2.5 2.5-2.5 2.5", fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }));
+		}
+		function MsCheckIcon() {
+			return react.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": true },
+				react.createElement("path", { d: "M3.2 8.6l3 3L12.8 4.8", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" }));
+		}
+		// 把扁平的 provider 组聚合成「厂商 → 中转站 → 模型」；配置外的路由归入 fallbackVendor 兜底。
+		function buildVendorTree(groups) {
+			const tree = [];
+			const vendorIndex = new Map();
+			for (const group of groups) {
+				const meta = MODEL_ROUTE_INDEX[group.id];
+				let vendorName;
+				let relayName;
+				if (meta) {
+					vendorName = meta.vendor;
+					relayName = meta.relay === null || meta.relay === void 0 ? null : meta.domain ? meta.relay + " · " + meta.domain : meta.relay;
+				} else {
+					vendorName = MODEL_GROUPS_DATA.fallbackVendor;
+					relayName = group.name;
+				}
+				let node = vendorIndex.get(vendorName);
+				if (node === void 0) {
+					node = { vendor: vendorName, count: 0, relays: [] };
+					vendorIndex.set(vendorName, node);
+					tree.push(node);
+				}
+				node.count += group.models.length;
+				const key = relayName === null ? "" : relayName;
+				let bucket = node.relays.find((entry) => entry.key === key);
+				if (bucket === void 0) {
+					bucket = { key, relay: relayName, groups: [] };
+					node.relays.push(bucket);
+				}
+				bucket.groups.push(group);
+			}
+			return tree;
+		}
+		// composer 模型 seat 的接管组件：完全自渲染（触发器 + 根菜单 + 模型/推理等级面板）。
+		function GroupedModelSelect(props) {
+			const { locked, available, sessionId, api } = props;
+			const [open, setOpen] = react.useState(false);
+			const [pane, setPane] = react.useState("root");
+			const [busy, setBusy] = react.useState(false);
+			const [collapsed, setCollapsed] = react.useState({});
+			const [dir, setDir] = react.useState({ status: "idle", groups: [], failures: [], current: null, error: null });
+			const rootRef = react.useRef(null);
+			const triggerRef = react.useRef(null);
+
+			const load = react.useCallback(() => {
+				if (sessionId === void 0) return;
+				setDir((prev) => ({ ...prev, status: "loading", error: null }));
+				api.sessions.models({ sessionId }).then((value) => {
+					setDir({ status: "ready", groups: value.groups ?? [], failures: value.failures ?? [], current: value.current ?? null, error: null });
+				}).catch((error) => {
+					setDir((prev) => ({ ...prev, status: "error", error: String(error && error.message ? error.message : error) }));
+				});
+			}, [sessionId, api]);
+
+			react.useEffect(() => {
+				if (!open) return;
+				const onDoc = (event) => {
+					if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+				};
+				document.addEventListener("mousedown", onDoc);
+				return () => document.removeEventListener("mousedown", onDoc);
+			}, [open]);
+
+			const choices = react.useMemo(() => dir.groups.flatMap((group) => group.models.map((model) => ({ group, model }))), [dir.groups]);
+			const current = dir.current;
+			const currentChoice = choices.find((choice) => choice.group.id === current?.provider && choice.model.id === current.model) ?? null;
+			const reasoning = currentChoice?.model.reasoning;
+			const effort = current?.reasoningEffort ?? reasoning?.defaultEffort;
+			const effortLabel = reasoning === void 0 ? void 0 : effort === void 0 ? "Default" : (reasoning.efforts ?? []).find((level) => level.id === effort)?.name ?? effort;
+			const modelLabel = currentChoice?.model.name ?? "选择模型";
+			const vendorTree = react.useMemo(() => buildVendorTree(dir.groups), [dir.groups]);
+
+			const show = () => {
+				setPane("root");
+				setOpen(true);
+				load();
+			};
+			const close = (restore) => {
+				setOpen(false);
+				setPane("root");
+				if (restore) queueMicrotask(() => triggerRef.current?.focus());
+			};
+			const choose = (group, model) => {
+				if (busy) return;
+				setBusy(true);
+				api.sessions.selectModel({ sessionId, provider: group.id, model: model.id }).then((value) => {
+					setBusy(false);
+					setDir((prev) => ({ ...prev, current: value.selected ?? { provider: group.id, model: model.id } }));
+					close(true);
+				}).catch((error) => {
+					setBusy(false);
+					setDir((prev) => ({ ...prev, error: String(error && error.message ? error.message : error) }));
+				});
+			};
+			const chooseEffort = (level) => {
+				if (busy || current === null) return;
+				if (effort === level) {
+					close(true);
+					return;
+				}
+				const selection = { sessionId, provider: current.provider, model: current.model };
+				if (level !== void 0) selection.reasoningEffort = level;
+				setBusy(true);
+				api.sessions.selectModel(selection).then((value) => {
+					setBusy(false);
+					setDir((prev) => ({ ...prev, current: value.selected ?? selection }));
+					close(true);
+				}).catch((error) => {
+					setBusy(false);
+					setDir((prev) => ({ ...prev, error: String(error && error.message ? error.message : error) }));
+				});
+			};
+			const onKeyDown = (event) => {
+				if (event.key === "Escape" && open) {
+					event.preventDefault();
+					if (pane !== "root") setPane("root");
+					else close(true);
+				}
+			};
+			const effortChoices = reasoning === void 0 ? [] : [
+				...(reasoning.defaultEffort === void 0 ? [{ key: "provider-default", effort: void 0, label: "Default" }] : []),
+				...(reasoning.efforts ?? []).map((level) => ({ key: "effort:" + level.id, effort: level.id, label: level.name, description: level.description }))
+			];
+
+			if (!available) {
+				return react.createElement("button", { type: "button", className: "dshmob-ms-trigger", disabled: true },
+					react.createElement("span", { className: "dshmob-ms-label" }, modelLabel));
+			}
+
+			const triggerLabel = effortLabel === void 0 ? modelLabel : modelLabel + " · " + effortLabel;
+			const menu = open ? react.createElement("div", { className: "dshmob-ms-menu", role: "menu", children: [
+				pane === "root" ? react.createElement(react.Fragment, null,
+					react.createElement("button", { type: "button", className: "dshmob-ms-cell", onClick: () => setPane("model"), children: [
+						react.createElement("span", { className: "dshmob-ms-cell-label" }, "模型"),
+						react.createElement("span", { className: "dshmob-ms-cell-value" }, modelLabel),
+						MsChevronRight()
+					] }),
+					reasoning !== void 0 ? react.createElement("button", { type: "button", className: "dshmob-ms-cell", onClick: () => setPane("effort"), children: [
+						react.createElement("span", { className: "dshmob-ms-cell-label" }, "推理等级"),
+						react.createElement("span", { className: "dshmob-ms-cell-value" }, effortLabel),
+						MsChevronRight()
+					] }) : null
+				) : null,
+				pane === "model" ? react.createElement(react.Fragment, null,
+					dir.status === "loading" ? react.createElement("div", { className: "dshmob-ms-status" }, "正在刷新模型列表…") : null,
+					dir.error !== null ? react.createElement("div", { className: "dshmob-ms-error" }, dir.error) : null,
+					dir.failures.map((failure) => react.createElement("div", { key: failure.id, className: "dshmob-ms-warning" }, failure.name + " 加载失败：" + failure.message)),
+					react.createElement("div", { className: "dshmob-ms-groups" },
+						vendorTree.map((vendor) => {
+							const isCollapsed = collapsed[vendor.vendor] === true;
+							return react.createElement("div", { key: vendor.vendor, className: "dshmob-ms-sect" },
+								react.createElement("button", { type: "button", className: "dshmob-ms-vendor", "aria-expanded": !isCollapsed, onClick: () => setCollapsed((prev) => ({ ...prev, [vendor.vendor]: !isCollapsed })), children: [
+									react.createElement("span", null, vendor.vendor),
+									react.createElement("span", { className: "dshmob-ms-count" }, String(vendor.count)),
+									react.createElement("span", { className: isCollapsed ? "dshmob-ms-vchev dshmob-ms-vchev-collapsed" : "dshmob-ms-vchev" }, MsChevronDown({}))
+								] }),
+								!isCollapsed ? vendor.relays.map((bucket) => react.createElement(react.Fragment, { key: bucket.key },
+									bucket.relay !== null ? react.createElement("div", { className: "dshmob-ms-relay" }, bucket.relay) : null,
+									bucket.groups.map((group) => group.models.map((model) => {
+										const selected = current?.provider === group.id && current.model === model.id;
+										return react.createElement("button", { key: group.id + "/" + model.id, type: "button", role: "menuitemradio", "aria-checked": selected, className: "dshmob-ms-option", title: model.name, disabled: busy, onClick: () => choose(group, model), children: [
+											react.createElement("span", { className: "dshmob-ms-ocopy" },
+												react.createElement("span", { className: "dshmob-ms-mname" }, model.name),
+												model.description !== void 0 ? react.createElement("span", { className: "dshmob-ms-mdesc" }, model.description) : null),
+											react.createElement("span", { className: "dshmob-ms-check" }, selected ? MsCheckIcon() : null)
+										] });
+									}))
+								)) : null
+							);
+						})),
+					dir.status === "ready" && choices.length === 0 ? react.createElement("div", { className: "dshmob-ms-empty" }, "没有可用的模型。") : null
+				) : null,
+				pane === "effort" ? react.createElement(react.Fragment, null,
+					effortChoices.length === 0 ? react.createElement("div", { className: "dshmob-ms-empty" }, "当前模型未提供推理等级。") :
+					effortChoices.map((level) => react.createElement("button", { key: level.key, type: "button", role: "menuitemradio", "aria-checked": effort === level.effort, className: "dshmob-ms-option", disabled: busy, onClick: () => chooseEffort(level.effort), children: [
+						react.createElement("span", { className: "dshmob-ms-ocopy" },
+							react.createElement("span", { className: "dshmob-ms-mname" }, level.label),
+							level.description !== void 0 ? react.createElement("span", { className: "dshmob-ms-mdesc" }, level.description) : null),
+						react.createElement("span", { className: "dshmob-ms-check" }, effort === level.effort ? MsCheckIcon() : null)
+					] }))
+				) : null
+			] }) : null;
+
+			return react.createElement("div", { ref: rootRef, className: "dshmob-ms-root", onKeyDown },
+				react.createElement("button", { ref: triggerRef, type: "button", className: "dshmob-ms-trigger", title: triggerLabel, disabled: locked, "aria-haspopup": "menu", "aria-expanded": open, onClick: () => {
+					if (open) close();
+					else show();
+				}, children: [
+					react.createElement("span", { className: "dshmob-ms-label" }, modelLabel),
+					effortLabel !== void 0 ? react.createElement("span", { className: "dshmob-ms-effort" }, effortLabel) : null,
+					react.createElement("span", { className: open ? "dshmob-ms-chevron dshmob-ms-chevron-open" : "dshmob-ms-chevron" }, MsChevronDown({}))
+				] }),
+				menu
+			);
+		}
+		// 模型菜单样式（复用 DSH 主题 token，类名独立前缀 dshmob-ms*）
+		function injectModelGroupsCss() {
+			if (document.querySelector("style[data-dshmob-modelgroups]")) return;
+			const css = [
+				".dshmob-ms-root{min-width:0;position:relative}",
+				".dshmob-ms-trigger{min-width:0;max-width:min(360px,45cqw);height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:flex}",
+				".dshmob-ms-trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
+				".dshmob-ms-trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}",
+				".dshmob-ms-label{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}",
+				".dshmob-ms-effort{color:var(--dsw-alias-label-caption);flex:none}",
+				".dshmob-ms-chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}",
+				".dshmob-ms-chevron-open{transform:rotate(180deg)}",
+				".dshmob-ms-menu{z-index:20;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:max-content;min-width:min(260px,100vw - 32px);max-width:min(440px,100vw - 32px);max-height:min(400px,100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:12px;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 8px);right:0;overflow:hidden}",
+				".dshmob-ms-status,.dshmob-ms-empty{color:var(--dsw-alias-label-tertiary);padding:10px;font-size:13px;line-height:20px}",
+				".dshmob-ms-error{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;padding:7px 8px;font-size:12px;line-height:18px}",
+				".dshmob-ms-warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label);border-radius:8px;padding:7px 8px;font-size:12px;line-height:18px}",
+				".dshmob-ms-groups{min-height:0;overflow-y:auto}",
+				".dshmob-ms-sect{margin-top:4px}",
+				".dshmob-ms-vendor{box-sizing:border-box;width:100%;border:none;text-align:left;background:var(--dsw-specific-menu);color:var(--dsw-alias-label-tertiary);border-radius:8px;cursor:pointer;align-items:center;gap:6px;padding:5px 8px 3px;font-size:12px;font-weight:500;line-height:18px;display:flex;position:sticky;top:0;z-index:1}",
+				".dshmob-ms-vendor:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+				".dshmob-ms-count{color:var(--dsw-alias-label-caption);font-weight:400;margin-left:auto;flex:none}",
+				".dshmob-ms-vchev{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}",
+				".dshmob-ms-vchev-collapsed{transform:rotate(-90deg)}",
+				".dshmob-ms-relay{color:var(--dsw-alias-label-tertiary);padding:4px 8px 0;font-size:12px;font-weight:400;line-height:18px}",
+				".dshmob-ms-option{box-sizing:border-box;width:auto;min-width:100%;min-height:38px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:10px;outline:none;align-items:center;gap:8px;padding:6px 8px;display:flex}",
+				".dshmob-ms-option:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
+				".dshmob-ms-option:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}",
+				".dshmob-ms-ocopy{flex-direction:column;flex:1;min-width:0;display:flex}",
+				".dshmob-ms-mname{text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:20px;overflow:hidden}",
+				".dshmob-ms-mdesc{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}",
+				".dshmob-ms-check{color:var(--dsw-alias-label-primary);flex:0 0 18px;place-items:center;display:grid}",
+				".dshmob-ms-cell{box-sizing:border-box;width:100%;min-width:240px;height:40px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 10px;font-size:14px;line-height:22px;display:flex}",
+				".dshmob-ms-cell:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+				".dshmob-ms-cell-label{white-space:nowrap;flex:none}",
+				".dshmob-ms-cell-value{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}",
+				".dshmob-ms-cell-chevron{color:var(--dsw-alias-label-tertiary);flex:none}"
+			].join("");
+			const tag = document.createElement("style");
+			tag.dataset.dshmobModelgroups = "1";
+			tag.textContent = css;
+			document.head.appendChild(tag);
+		}
+		/* ==================== Think 默认展开设置 ==================== */
+		// 设置 → 通用 里的一行偏好：写入 localStorage，供 ReasoningRow 补丁读取。
+		function ThinkDefaultSettingRow() {
+			const [on, setOn] = react.useState(readThinkPref);
+			const toggle = () => {
+				setOn((value) => {
+					const next = !value;
+					try { localStorage.setItem(THINK_PREF_KEY, next ? "1" : "0"); } catch (_) {}
+					return next;
+				});
+			};
+			return react.createElement("div", { className: "dshmob-setrow" },
+				react.createElement("div", { className: "dshmob-setcopy" },
+					react.createElement("div", { className: "dshmob-setlabel" }, "思考过程默认展开"),
+					react.createElement("div", { className: "dshmob-setdesc" }, "新消息的 Think 块默认展开（开）或收起（关）；单条消息仍可点击标题切换。")
+				),
+				react.createElement("button", { type: "button", role: "switch", "aria-checked": on, "aria-label": "思考过程默认展开", className: on ? "dshmob-switch dshmob-switch-on" : "dshmob-switch", onClick: toggle })
+			);
+		}
+		function injectThinkSettingCss() {
+			if (document.querySelector("style[data-dshmob-thinksetting]")) return;
+			const css = [
+				".dshmob-setrow{align-items:center;gap:12px;padding:12px 16px;display:flex;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+				".dshmob-setcopy{flex-direction:column;gap:2px;flex:1;min-width:0;display:flex}",
+				".dshmob-setlabel{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}",
+				".dshmob-setdesc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
+				".dshmob-switch{box-sizing:border-box;width:36px;height:20px;border-radius:999px;border:none;cursor:pointer;background:var(--dsw-alias-interactive-bg-hover);position:relative;flex:none;padding:0;transition:background .15s}",
+				".dshmob-switch-on{background:var(--dsw-alias-state-success-primary)}",
+				".dshmob-switch::after{content:\"\";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-base);transition:transform .15s}",
+				".dshmob-switch-on::after{transform:translateX(16px)}"
+			].join("");
+			const tag = document.createElement("style");
+			tag.dataset.dshmobThinksetting = "1";
+			tag.textContent = css;
+			document.head.appendChild(tag);
+		}
+		// 注册：composer 模型 seat（single seat 的动态注册条目会胜出内置 ModelSelect）+ 设置页通用行。
+		function mountModelGroupSelect(ctx) {
+			const slots = ctx.get("slots");
+			const connection = ctx.get("connection");
+			if (slots === void 0 || connection === void 0 || connection.api === void 0) {
+				console.warn("dsh-mobile: 模型分组选择器跳过（slots/connection 服务不可用）");
+				return;
+			}
+			const api = connection.api;
+			slots.inject("conversation.input.model", () => slots.register({
+				name: "conversation.input.model",
+				inject: (sessionId) => {
+					if (sessionId === void 0) return { available: false, sessionId: void 0, api };
+					return { available: true, sessionId, api };
+				}
+			}, GroupedModelSelect));
+		}
+		function mountThinkSetting(ctx) {
+			const slots = ctx.get("slots");
+			if (slots === void 0) return;
+			slots.inject("settings.general.item", () => slots.register({
+				name: "settings.general.item",
+				id: "dshmob-think-default",
+				order: 60
+			}, ThinkDefaultSettingRow));
+		}
+		function mountModelGroupsExtras(ctx) {
+			if (typeof document === "undefined") return;
+			injectModelGroupsCss();
+			injectThinkSettingCss();
+			mountModelGroupSelect(ctx);
+			mountThinkSetting(ctx);
+		}
+
+		/* ==================== 插件主体 ==================== */
 		const inject = [];
 		// 入口：注入样式并启动。任何失败只记日志不抛出——UI 插件故障不应拖垮 GUI boot。
-		function apply() {
+		function apply(ctx) {
 			try {
 				if (typeof document === "undefined") return;
 				const rt = createRuntime();
@@ -991,6 +1347,12 @@ window.__ModuleLoader__.load({
 			} catch (error) {
 				console.error("dsh-mobile: 初始化失败", error);
 			}
+		// 新增：模型分组选择器 + Think 设置（独立捕获，失败不影响既有移动端适配）
+		try {
+			mountModelGroupsExtras(ctx);
+		} catch (error) {
+			console.error("dsh-mobile: 模型分组/Think 设置初始化失败", error);
+		}
 		}
 		exports.apply = apply;
 		exports.inject = inject;

@@ -1,0 +1,404 @@
+{
+  "version": 1,
+  "note": "模型选择器分组配置：由 build-model-groups.mjs 合并进 dsh-mobile client.js。修改本文件后请重新运行构建脚本。",
+  "fallbackVendor": "其他",
+  "groups": [
+    {
+      "vendor": "Claude",
+      "relays": [
+        {
+          "relay": "Micu",
+          "domain": "www.micuapi.ai",
+          "routes": [
+            {
+              "id": "ccs-claude-micu-d8f392093d",
+              "models": [
+                "claude-opus-4-8"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Claude #1",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-my-claude-ed1f5dc52d",
+              "models": [
+                "claude-fable-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Claude #2",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-my-claude-3f9e5ad789",
+              "models": [
+                "claude-fable-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Claude #3",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-my-claude-e4c409d573",
+              "models": [
+                "claude-fable-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Claude #4",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-my-claude-bfe1456f0f",
+              "models": [
+                "gpt-5.6-sol[1M]",
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Claude #5",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-my-claude-cc76973ddd",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "micuop5",
+          "domain": "www.micuapi.ai",
+          "routes": [
+            {
+              "id": "ccs-claude-micuop5-b460a557ec",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "op5",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-op5-31dbf913e2",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "最贵op5",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-op5-709ee00a1a",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "Claude Desktop",
+      "relays": [
+        {
+          "relay": "c",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-desktop-c-b456bc562e",
+              "models": [
+                "claude-fable-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "gugu",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-desktop-gugu-1cfba570be",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "micuop5",
+          "domain": "www.micuapi.ai",
+          "routes": [
+            {
+              "id": "ccs-claude-desktop-micuop5-e351d58d28",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "op5",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-desktop-op5-56cfbcf59f",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "满血最贵",
+          "domain": "api.ggniao.com",
+          "routes": [
+            {
+              "id": "ccs-claude-desktop-provider-d300e369f4",
+              "models": [
+                "claude-opus-5"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "Codex",
+      "relays": [
+        {
+          "relay": "78code",
+          "domain": "www.78code.cc/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-78code-110a073623",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "Micu",
+          "domain": "www.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-micu-ea9aa069b4",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "Micu copy",
+          "domain": "api-slb.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-micu-copy-cba2e922e1",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "My Codex copy",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-my-codex-copy-2579fde3ad",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "grok4.6",
+          "domain": "www.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-grok4.6-a44be38201",
+              "models": [
+                "grok-4.6"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "pro1",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-pro1-b6c5e835bf",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "pro2",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-pro2-c840979fc1",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "xx",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-xx-9c2616dcbd",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "备用",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-provider-317a0c8d96",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "牛逼拼车王",
+          "domain": "ai.nbcodex.com",
+          "routes": [
+            {
+              "id": "ccs-codex-provider-d140cb430f",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "福利组",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-codex-provider-5f803e8345",
+              "models": [
+                "gpt-5.6-sol"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "Grok Build",
+      "relays": [
+        {
+          "relay": "grok micu",
+          "domain": "www.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-grokbuild-grok-micu-80229a5dc8",
+              "models": [
+                "grok-4.6"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "Hermes",
+      "relays": [
+        {
+          "relay": "1",
+          "domain": "api.ggniao.com/v1",
+          "routes": [
+            {
+              "id": "ccs-hermes-1-f6eeff2e9d",
+              "models": [
+                "gpt-5.6-terra"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "grok45",
+          "domain": "api-slb.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-hermes-grok45-40778e5d90",
+              "models": [
+                "grok-4.5",
+                "grok-4.20-fast",
+                "grok-4.3",
+                "grok-latest"
+              ]
+            }
+          ]
+        },
+        {
+          "relay": "micuapi",
+          "domain": "api-slb.micuapi.ai/v1",
+          "routes": [
+            {
+              "id": "ccs-hermes-micuapi-6dc5843f40",
+              "models": [
+                "gpt-5.5"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "OpenClaw",
+      "relays": [
+        {
+          "relay": "DeepSeek V4 Pro",
+          "domain": "api.deepseek.com",
+          "routes": [
+            {
+              "id": "ccs-openclaw-deepseek-v4-pro-a86ab826a8",
+              "models": [
+                "deepseek-v4-flash",
+                "deepseek-v4-pro",
+                "deepseek-chat",
+                "deepseek-reasoner"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
