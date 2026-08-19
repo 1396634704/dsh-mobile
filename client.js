@@ -1034,6 +1034,10 @@ window.__ModuleLoader__.load({
 const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"vendor":"Claude","relays":[{"relay":"Micu","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-micu-d8f392093d"}]},{"relay":"My Claude #1","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-ed1f5dc52d"}]},{"relay":"My Claude #2","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-3f9e5ad789"}]},{"relay":"My Claude #3","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-e4c409d573"}]},{"relay":"My Claude #4","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-bfe1456f0f"}]},{"relay":"My Claude #5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-my-claude-cc76973ddd"}]},{"relay":"micuop5","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-micuop5-b460a557ec"}]},{"relay":"op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-op5-31dbf913e2"}]},{"relay":"最贵op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-op5-709ee00a1a"}]}]},{"vendor":"Claude Desktop","relays":[{"relay":"c","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-c-b456bc562e"}]},{"relay":"gugu","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-gugu-1cfba570be"}]},{"relay":"micuop5","domain":"www.micuapi.ai","routes":[{"id":"ccs-claude-desktop-micuop5-e351d58d28"}]},{"relay":"op5","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-op5-56cfbcf59f"}]},{"relay":"满血最贵","domain":"api.ggniao.com","routes":[{"id":"ccs-claude-desktop-provider-d300e369f4"}]}]},{"vendor":"Codex","relays":[{"relay":"78code","domain":"www.78code.cc/v1","routes":[{"id":"ccs-codex-78code-110a073623"}]},{"relay":"Micu","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-codex-micu-ea9aa069b4"}]},{"relay":"Micu copy","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-codex-micu-copy-cba2e922e1"}]},{"relay":"My Codex copy","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-my-codex-copy-2579fde3ad"}]},{"relay":"grok4.6","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-codex-grok4.6-a44be38201"}]},{"relay":"pro1","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-pro1-b6c5e835bf"}]},{"relay":"pro2","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-pro2-c840979fc1"}]},{"relay":"xx","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-xx-9c2616dcbd"}]},{"relay":"备用","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-provider-317a0c8d96"}]},{"relay":"牛逼拼车王","domain":"ai.nbcodex.com","routes":[{"id":"ccs-codex-provider-d140cb430f"}]},{"relay":"福利组","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-codex-provider-5f803e8345"}]}]},{"vendor":"Grok Build","relays":[{"relay":"grok micu","domain":"www.micuapi.ai/v1","routes":[{"id":"ccs-grokbuild-grok-micu-80229a5dc8"}]}]},{"vendor":"Hermes","relays":[{"relay":"1","domain":"api.ggniao.com/v1","routes":[{"id":"ccs-hermes-1-f6eeff2e9d"}]},{"relay":"grok45","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-hermes-grok45-40778e5d90"}]},{"relay":"micuapi","domain":"api-slb.micuapi.ai/v1","routes":[{"id":"ccs-hermes-micuapi-6dc5843f40"}]}]},{"vendor":"OpenClaw","relays":[{"relay":"DeepSeek V4 Pro","domain":"api.deepseek.com","routes":[{"id":"ccs-openclaw-deepseek-v4-pro-a86ab826a8"}]}]}]};
 /* ==== dshmob-model-groups-data:end ==== */
 		const THINK_PREF_KEY = "dsh:think-default-expanded";
+		// 思考程度全局记忆：推理等级在服务端是每个会话独立存储的，新会话/切换会话会跳回默认。
+		// 用户选择等级时写入本地；新会话若未单独设置过等级，自动应用记忆值（见 GroupedModelSelect）。
+		const EFFORT_MEM_KEY = "dsh:think-effort";
+		function readEffortMemory() { try { const v = localStorage.getItem(EFFORT_MEM_KEY); return v === null || v === "" ? null : v; } catch (_) { return null; } }
 		// route id → 分组元数据（查表，避免每次渲染都遍历分组树）
 		// 分组数据运行时 store：初始来自构建期内嵌数据；热更新轮询到新数据后原地替换并通知订阅者。
 		function buildRouteIndex(data) {
@@ -1134,6 +1138,7 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const [busy, setBusy] = react.useState(false);
 			const [collapsed, setCollapsed] = react.useState({});
 			const [dir, setDir] = react.useState({ status: "idle", groups: [], failures: [], current: null, error: null });
+			const [memEffort, setMemEffort] = react.useState(readEffortMemory);
 			const rootRef = react.useRef(null);
 			const triggerRef = react.useRef(null);
 
@@ -1171,10 +1176,26 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			}, [open]);
 
 			const choices = react.useMemo(() => dir.groups.flatMap((group) => group.models.map((model) => ({ group, model }))), [dir.groups]);
+			// 思考程度全局记忆：当前会话未单独设置过推理等级时，自动应用本地记忆值，
+			// 避免新开对话/切换对话后跳回默认等级（依赖 choices，须在其定义之后）
+			react.useEffect(() => {
+				if (dir.status !== "ready" || dir.current === null) return;
+				if (dir.current.reasoningEffort !== null && dir.current.reasoningEffort !== void 0) return; // 该会话已有自己的等级
+				const mem = memEffort;
+				if (mem === null) return;
+				const choice = choices.find((c) => c.group.id === dir.current.provider && c.model.id === dir.current.model);
+				if (choice === void 0) return;
+				if (!(choice.model.reasoning?.efforts ?? []).some((level) => level.id === mem)) return; // 当前模型不支持记忆等级
+				api.sessions.selectModel({ sessionId, provider: dir.current.provider, model: dir.current.model, reasoningEffort: mem }).then((res) => {
+					const value = res && res.result && res.result.ok ? res.result.value : null;
+					if (value !== null && value.selected !== void 0) setDir((prev) => ({ ...prev, current: value.selected }));
+				}).catch(() => {});
+			}, [dir, choices, memEffort, sessionId, api]);
 			const current = dir.current;
 			const currentChoice = choices.find((choice) => choice.group.id === current?.provider && choice.model.id === current.model) ?? null;
 			const reasoning = currentChoice?.model.reasoning;
-			const effort = current?.reasoningEffort ?? reasoning?.defaultEffort;
+			// 会话未设置等级时回落到全局记忆（localStorage），避免新会话/切会话跳回默认
+			const effort = current?.reasoningEffort ?? memEffort ?? reasoning?.defaultEffort;
 			const effortLabel = reasoning === void 0 ? void 0 : effort === void 0 ? "Default" : (reasoning.efforts ?? []).find((level) => level.id === effort)?.name ?? effort;
 			const modelLabel = currentChoice?.model.name ?? "选择模型";
 			const [groupsTick, setGroupsTick] = react.useState(0);
@@ -1212,6 +1233,8 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			const chooseEffort = (level) => {
 				if (busy || current === null) return;
 				if (effort === level) {
+					// 当前会话已是该等级：仍写入全局记忆（首次使用记忆机制时，把服务端已有的选择收进记忆）
+					if (level !== void 0) { try { localStorage.setItem(EFFORT_MEM_KEY, level); } catch (_) {} setMemEffort(level); }
 					close(true);
 					return;
 				}
@@ -1222,6 +1245,9 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 					const value = res && res.result && res.result.ok ? res.result.value : null;
 					setBusy(false);
 					if (value === null) { setDir((prev) => ({ ...prev, error: res?.result?.error?.message ?? "选择推理等级失败" })); return; }
+					// 写入全局记忆：选具体等级记下，选 Default（provider 默认）清除
+					if (level !== void 0) { try { localStorage.setItem(EFFORT_MEM_KEY, level); } catch (_) {} setMemEffort(level); }
+					else { try { localStorage.removeItem(EFFORT_MEM_KEY); } catch (_) {} setMemEffort(null); }
 					setDir((prev) => ({ ...prev, current: value.selected ?? selection }));
 					close(true);
 				}).catch((error) => {
