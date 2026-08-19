@@ -88,7 +88,7 @@ window.__ModuleLoader__.load({
 			// 模型分组菜单：桌面为 absolute 锚点弹层；移动端 composer 内 absolute 会被 scrollBody/centerCol/frame 的 overflow 裁剪
 			// （列表展开即"跑到屏幕外"），故改 fixed 视口定位：底部贴在 composer 上方（--dshmob-toast-bottom 同语义变量，
 			// 减 vv-top 补偿 iOS 键盘时 fixed 基于 layout viewport 的偏移），水平居中，高度随可视高度收缩。
-			"html[data-dshmob=\"on\"] .dshmob-ms-menu{position:fixed !important;left:50% !important;right:auto !important;top:auto !important;transform:translateX(-50%) !important;bottom:calc(var(--dshmob-toast-bottom,96px) - var(--dshmob-vv-top,0px) + env(safe-area-inset-bottom,0px)) !important;width:min(calc(100vw - 24px),420px) !important;min-width:0 !important;max-width:none !important;max-height:min(400px,calc(var(--dshmob-vv-height,100vh) - 190px)) !important;z-index:60}",
+			"html[data-dshmob=\"on\"] .dshmob-ms-menu{position:fixed !important;left:50% !important;right:auto !important;top:auto !important;transform:translateX(-50%) !important;bottom:calc(var(--dshmob-toast-bottom,96px) - var(--dshmob-vv-top,0px) + env(safe-area-inset-bottom,0px));width:min(calc(100vw - 24px),420px) !important;min-width:0 !important;max-width:none !important;max-height:min(400px,calc(var(--dshmob-vv-height,100vh) - 190px));z-index:60}",
 			"html[data-dshmob=\"on\"] [data-dshmob-overlay=\"directory\"]{height:min(88dvh,calc(var(--dshmob-vv-height) - 16px)) !important;padding:0 !important}", "html[data-dshmob=\"on\"] [data-dshmob-role=\"directory-columns\"]{gap:8px;scroll-snap-type:x mandatory;overflow-x:auto;overscroll-behavior-inline:contain}",
 			"html[data-dshmob=\"on\"] [data-dshmob-role=\"directory-column\"]{flex:0 0 calc(100vw - 48px);min-width:0;scroll-snap-align:end}", "html[data-dshmob=\"on\"] [data-dshmob-role=\"directory-row\"]{min-height:var(--dshmob-touch);height:auto;padding:8px}",
 			"html[data-dshmob=\"on\"] [data-dshmob-role=\"directory-footer\"]{position:sticky;bottom:0;flex-wrap:wrap;padding:10px 12px max(10px,env(safe-area-inset-bottom,0px));background:var(--dshmob-surface-raised)}",
@@ -888,6 +888,7 @@ window.__ModuleLoader__.load({
 			let lastFailLabel = null;
 			let lastInputAt = 0; // 最近一次真实输入时间（打字时不打扰）
 			let lastInteractionAt = 0; // 最近一次用户交互（点击/按键/输入）时间
+			let resumedAt = 0; // 最近一次从后台/窗口失焦恢复的时间（恢复冷静期）
 			let sessionChangedAt = Date.now(); // 会话切换信号时间（自动应用只在切换后短窗口内尝试）
 			const readMem = () => { try { return localStorage.getItem(PERMISSION_MEM_KEY); } catch (_) { return null; } };
 			const record = (preset) => {
@@ -903,18 +904,26 @@ window.__ModuleLoader__.load({
 				const t = event.target;
 				if (isElement(t) && t.matches("textarea,input,[contenteditable]")) { lastInputAt = Date.now(); markInteraction(); }
 			}, { capture: true, signal: rt.abort.signal });
+			// 从后台/窗口失焦恢复：切回来时 React 重渲染会更换触发器 DOM 节点，
+			// 轮询会误判为"会话切换"而重新武装自动应用（用户反馈：每次聚焦回来权限弹窗又弹出）。
+			// 恢复后 30 秒冷静期内绝不自动应用（窗口 10 秒，冷静期覆盖后彻底安静）。
+			const markResumed = () => { resumedAt = Date.now(); };
+			document.addEventListener("visibilitychange", () => { if (!document.hidden) markResumed(); }, { signal: rt.abort.signal });
+			window.addEventListener("focus", markResumed, { signal: rt.abort.signal });
 			// 自动应用：仅当触发器可见、当前模式与记忆不同（即仍为默认）、节流窗口外。
-			// 克制策略（用户反馈"打字/选模型时弹窗乱弹"）：
+			// 克制策略（用户反馈"打字/选模型/聚焦回来时弹窗乱弹"）：
 			// ① 仅在会话切换后的 10 秒窗口内尝试（窗口过后不再打扰日常使用）；
 			// ② 最近 10 秒有任何用户交互（点击/按键/输入）时跳过——选模型、滚动、打字都算；
 			//    只监听 aria-label 变化与低频轮询，打字产生的 DOM 变化不会触发；
-			// ③ 已有浮层打开（模型菜单/权限菜单/对话框等）时跳过，绝不叠加弹出；
-			// ④ 同一种"当前模式"连续失败 3 次后放弃，直到会话切换才重新武装。
+			// ③ 从后台/失焦恢复后 30 秒冷静期内跳过（防节点更换误判会话切换）；
+			// ④ 已有浮层打开（模型菜单/权限菜单/对话框等）时跳过，绝不叠加弹出；
+			// ⑤ 同一种"当前模式"连续失败 3 次后放弃，直到会话切换才重新武装。
 			const applyMem = () => {
 				if (!isMobileActive() || Date.now() - lastApplyAt < 12000) return;
 				if (Date.now() - sessionChangedAt > 10000) return; // 超出会话切换窗口
 				if (Date.now() - lastInteractionAt < 10000) return; // 用户正在操作
 				if (Date.now() - lastInputAt < 30000) return; // 最近在输入
+				if (Date.now() - resumedAt < 30000) return; // 刚从后台/失焦恢复：冷静期
 				if (document.querySelector(".dshmob-ms-menu,[role=menu],[role=dialog],[data-dshmob-overlay]") !== null) return; // 已有浮层打开
 				const trig = document.querySelector(".Sh0Q9G_trigger");
 				if (!isElement(trig) || trig.disabled || trig.getBoundingClientRect().width === 0) return;
@@ -970,7 +979,14 @@ window.__ModuleLoader__.load({
 			// （新旧会话权限相同时 label 不变，靠节点更换检测发现会话切换）。
 			const ob = new MutationObserver((entries) => {
 				for (const entry of entries) {
-					if (entry.type === "attributes" && entry.attributeName === "aria-label") { sessionChangedAt = Date.now(); scheduleApply(); break; }
+					if (entry.type === "attributes" && entry.attributeName === "aria-label") {
+						// 真正的会话切换/权限状态变化：打开窗口并清除"正在操作"计时
+						// （切换会话的点击本身不应阻挡自动应用；切换后的新操作会重新计时挡住）
+						sessionChangedAt = Date.now();
+						lastInteractionAt = 0;
+						scheduleApply();
+						break;
+					}
 				}
 			});
 			ob.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["aria-label"] });
@@ -979,10 +995,12 @@ window.__ModuleLoader__.load({
 			const pollTimer = window.setInterval(() => {
 				const trig = document.querySelector(".Sh0Q9G_trigger");
 				if (isElement(trig) && trig !== cachedTrig) {
-					cachedTrig = trig; // 触发器节点更换 = 会话切换 → 重新武装并检查
+					// 触发器节点更换 = 会话切换 → 重新武装并检查（切后台回来误更换由恢复冷静期兜底）
+					cachedTrig = trig;
 					lastFailLabel = null;
 					failCount = 0;
 					sessionChangedAt = Date.now();
+					lastInteractionAt = 0;
 					scheduleApply();
 				} else if (!isElement(cachedTrig) && !isElement(trig)) {
 					cachedTrig = trig ?? null;
@@ -1305,6 +1323,34 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 				document.addEventListener("mousedown", onDoc);
 				return () => document.removeEventListener("mousedown", onDoc);
 			}, [open]);
+			// 移动端菜单定位：打开时实时测量触发器位置写内联样式，随视口/键盘变化更新。
+			// 不用 --dshmob-toast-bottom 变量——它只在特定时机刷新，切后台/键盘收起后可能残留旧值，
+			// 导致菜单弹到屏幕上半屏（用户反馈）。
+			const [menuGeom, setMenuGeom] = react.useState(null);
+			react.useEffect(() => {
+				if (!open) return;
+				const update = () => {
+					const mobile = window.matchMedia(MOBILE_QUERY).matches && document.documentElement.dataset.dshmob === "on";
+					if (!mobile) { setMenuGeom(null); return; } // 桌面保持 CSS absolute 锚点定位
+					const trig = triggerRef.current;
+					if (!isElement(trig)) return;
+					const rect = trig.getBoundingClientRect();
+					const vvTop = window.visualViewport && typeof window.visualViewport.offsetTop === "number" ? window.visualViewport.offsetTop : 0;
+					setMenuGeom({
+						// fixed 定位基于 layout viewport：视觉底 = innerHeight - bottom - vvTop，贴在触发器上方 8px
+						bottom: window.innerHeight - rect.top + 8 - vvTop + "px",
+						maxHeight: Math.max(140, rect.top - 24) + "px"
+					});
+				};
+				update();
+				window.addEventListener("resize", update);
+				const vv = window.visualViewport;
+				if (vv !== undefined && vv !== null) { vv.addEventListener("resize", update); vv.addEventListener("scroll", update); }
+				return () => {
+					window.removeEventListener("resize", update);
+					if (vv !== undefined && vv !== null) { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); }
+				};
+			}, [open]);
 
 			const choices = react.useMemo(() => dir.groups.flatMap((group) => group.models.map((model) => ({ group, model }))), [dir.groups]);
 			// 思考程度全局记忆：当前会话未单独设置过推理等级时，自动应用本地记忆值，
@@ -1405,7 +1451,7 @@ const MODEL_GROUPS_DATA = {"version":1,"fallbackVendor":"其他","groups":[{"ven
 			}
 
 			const triggerLabel = effortLabel === void 0 ? modelLabel : modelLabel + " · " + effortLabel;
-			const menu = open ? react.createElement("div", { className: "dshmob-ms-menu", role: "menu", children: [
+			const menu = open ? react.createElement("div", { className: "dshmob-ms-menu", role: "menu", style: menuGeom ?? undefined, children: [
 				pane === "root" ? react.createElement(react.Fragment, null,
 					react.createElement("button", { type: "button", className: "dshmob-ms-cell", onClick: () => setPane("model"), children: [
 						react.createElement("span", { className: "dshmob-ms-cell-label" }, "模型"),
